@@ -1,0 +1,576 @@
+services:
+  proxy:
+    image: traefik:2.11     # Review traefik documentation https://doc.traefik.io/traefik/ 
+    container_name: traefik
+    command:
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --experimental.plugins.traefik-get-real-ip.modulename=github.com/Paxxs/traefik-get-real-ip
+      - --experimental.plugins.traefik-get-real-ip.version=v1.0.3
+      - --accesslog
+    ports:
+      - 81:80
+      - 8080:8080
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+    networks:
+      vpn:
+        ipv4_address: 172.21.0.3
+
+  vpn:
+    image: ghcr.io/bubuntux/nordlynx
+    container_name: vpn
+    cap_add:
+      - NET_ADMIN               # Required
+    environment:                # Review https://github.com/bubuntux/nordvpn#environment-variables
+      - TOKEN=< Your VPN Token > # Required
+      - CONNECT=United_States
+      - TECHNOLOGY=NordLynx
+      - PRIVATE_KEY=< Your Private Key > # Requireed
+      - TZ=America/Chicago
+      - TABLE=auto
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=1     # disable ipv6; recommended if using ipv4 only
+    restart: unless-stopped      
+    networks:
+        vpn:
+          ipv4_address: 172.21.0.2
+    extra_hosts:
+      - deluge qbittorrent iptorrents flaresolverr jackett kapowarr lidarr mylar3 prowlarr radarr readarr sonarr
+
+  qBittorrent:
+    image: ghcr.io/linuxserver/qbittorrent:latest
+    network_mode: container:vpn
+    cap_drop:
+      - AUDIT_CONTROL
+      - BLOCK_SUSPEND
+      - DAC_READ_SEARCH
+      - IPC_LOCK
+      - IPC_OWNER
+      - LEASE
+      - LINUX_IMMUTABLE
+      - MAC_ADMIN
+      - MAC_OVERRIDE
+      - NET_BROADCAST
+      - SYSLOG
+      - SYS_ADMIN
+      - SYS_BOOT
+      - SYS_MODULE
+      - SYS_NICE
+      - SYS_PACCT
+      - SYS_PTRACE
+      - SYS_RAWIO
+      - SYS_RESOURCE
+      - SYS_TIME
+      - SYS_TTY_CONFIG
+      - WAKE_ALARM
+    environment:
+      - PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - PUID=99
+      - PGID=100
+      - VPN_ENABLED=no
+      - INSTALL_PYTHON3=yes
+      - HEALTH_CHECK_SILENT=1
+      - UMASK=002
+      - RESTART_CONTAINER=yes
+      - TZ=America/Chicago
+      - WEBUI_PORT=8081
+      - TORRENTING_PORT=6887
+      - DOCKER_MODS=lscr.io/linuxserver/mods:universal-unrar6
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.iptorrents.loadbalancer.server.port=8081
+      - traefik.http.routers.iptorrents.rule=Host(`qbittorrent`)
+    privileged: true
+    volumes:
+      - /<Local Config directory>/qBittorrent:/config
+      - /<local downloads directory>:/downloads
+    restart: unless-stopped
+    depends_on:
+      - vpn
+      
+  deluge:
+    image: lscr.io/linuxserver/deluge:latest
+    network_mode: container:vpn
+    cap_drop:
+      - AUDIT_CONTROL
+      - BLOCK_SUSPEND
+      - DAC_READ_SEARCH
+      - IPC_LOCK
+      - IPC_OWNER
+      - LEASE
+      - LINUX_IMMUTABLE
+      - MAC_ADMIN
+      - MAC_OVERRIDE
+      - NET_BROADCAST
+      - SYSLOG
+      - SYS_ADMIN
+      - SYS_BOOT
+      - SYS_MODULE
+      - SYS_NICE
+      - SYS_PACCT
+      - SYS_PTRACE
+      - SYS_RAWIO
+      - SYS_RESOURCE
+      - SYS_TIME
+      - SYS_TTY_CONFIG
+      - WAKE_ALARM
+    environment:
+      - PUID=99
+      - PGID=100
+      - UMASK_SET=002
+      - TZ=America/Chicago
+      - HOME=/root
+      - LANGUAGE=en_US.UTF-8
+      - LANG=en_US.UTF-8
+      - TERM=xterm
+      - PYTHON_EGG_CACHE=/config/plugins/.python-eggs
+      - GLOBAL_APPLY_PERMISSIONS=true
+      - DELUGE_WEB_PORT=8112
+      - DELUGE_DEAMON_PORT=58846
+      - DELUGE_DOWNLOAD_DIR=/downloads/completed
+      - DELUGE_INCOMPLETE_DIR=/downloads/incomplete
+      - DELUGE_TORRENT_DIR=/downloads/torrents
+      - DELUGE_WATCH_DIR=/downloads/watch
+      - UMASK=022
+      - HEALTH_CHECK_HOST=google.com
+      - LOG_TO_STDOUT=false
+      - DELUGE_LISTEN_PORT_LOW=53394
+      - DELUGE_LISTEN_PORT_HIGH=53404
+      - DELUGE_OUTGOING_PORT_LOW=63394
+      - DELUGE_OUTGOING_PORT_HIGH=63404
+      - RESTART_CONTAINER=yes
+      - DOCKER_MODS=lscr.io/linuxserver/mods:universal-unrar6
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.deluge.loadbalancer.server.port=8112
+      - traefik.http.routers.deluge.rule=Host(`deluge`)
+    volumes:
+      - /<Local Config directory>/deluge:/config
+      - /<local downloads directory>:/downloads
+    restart: unless-stopped
+    depends_on:
+      - vpn     
+
+  prowlarr:
+    image: ghcr.io/hotio/prowlarr:latest
+    network_mode: container:vpn
+    cap_drop:
+      - AUDIT_CONTROL
+      - BLOCK_SUSPEND
+      - DAC_READ_SEARCH
+      - IPC_LOCK
+      - IPC_OWNER
+      - LEASE
+      - LINUX_IMMUTABLE
+      - MAC_ADMIN
+      - MAC_OVERRIDE
+      - NET_ADMIN
+      - NET_BROADCAST
+      - SYSLOG
+      - SYS_ADMIN
+      - SYS_BOOT
+      - SYS_MODULE
+      - SYS_NICE
+      - SYS_PACCT
+      - SYS_PTRACE
+      - SYS_RAWIO
+      - SYS_RESOURCE
+      - SYS_TIME
+      - SYS_TTY_CONFIG
+      - WAKE_ALARM
+    entrypoint:
+      - /init
+    environment:
+      - PUID=99
+      - GUID=100
+      - UMASK=002
+      - TZ=America/Chicago
+      - PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - APP_DIR=/app
+      - CONFIG_DIR=/config
+      - PGID=1000
+      - ARGS=
+      - XDG_CONFIG_HOME=/config/.config
+      - XDG_CACHE_HOME=/config/.cache
+      - XDG_DATA_HOME=/config/.local/share
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
+      - S6_BEHAVIOUR_IF_STAGE2_FAILS=2
+      - S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0
+      - BUILD_ARCHITECTURE=linux-amd64
+      - LANGUAGE=en_US:en
+      - S6_SERVICES_GRACETIME=180000
+      - S6_STAGE2_HOOK=/init-hook
+      - VPN_ENABLED=false
+      - VPN_PROVIDER=generic
+      - VPN_LAN_NETWORK=
+      - VPN_CONF=wg0
+      - VPN_ADDITIONAL_PORTS=
+      - PRIVOXY_ENABLED=false
+      - VPN_AUTO_PORT_FORWARD=true
+      - VPN_PIA_USER=
+      - VPN_PIA_PASS=
+      - VPN_PIA_PREFERRED_REGION=
+      - IMAGE_STATS=ewogICJhcHAiOiAicHJvd2xhcnIiLAogICJpbWFnZSI6ICJob3Rpby9wcm93bGFycjpyZWxlYXNlIiwKICAicmV2aXNpb24iOiAiNjg0MWM3ZCIsCiAgInZlcnNpb24iOiAiMS4xMi4yLjQyMTEiCn0K
+      - VPN_KEEP_LOCAL_DNS=false
+      - VPN_PIA_DIP_TOKEN=no
+      - VPN_PIA_PORT_FORWARD_PERSIST=false
+      - WEBUI_PORTS=9696/tcp,9696/udp
+      - VPN_EXPOSE_PORTS_ON_LAN=
+      - VPN_AUTO_PORT_FORWARD_TO_PORTS=
+      - UNBOUND_ENABLED=false
+      - VPN_FIREWALL_TYPE=auto
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.prowlarr.loadbalancer.server.port=9696
+      - traefik.http.routers.prowlarr.rule=Host(`prowlarr`)      
+    volumes:
+      - /<Local Config directory>/prowlarr:/config
+    restart: unless-stopped
+    depends_on:
+      - vpn 
+ 
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest
+    network_mode: container:vpn
+    cap_drop:
+      - AUDIT_CONTROL
+      - BLOCK_SUSPEND
+      - DAC_READ_SEARCH
+      - IPC_LOCK
+      - IPC_OWNER
+      - LEASE
+      - LINUX_IMMUTABLE
+      - MAC_ADMIN
+      - MAC_OVERRIDE
+      - NET_ADMIN
+      - NET_BROADCAST
+      - SYSLOG
+      - SYS_ADMIN
+      - SYS_BOOT
+      - SYS_MODULE
+      - SYS_NICE
+      - SYS_PACCT
+      - SYS_PTRACE
+      - SYS_RAWIO
+      - SYS_RESOURCE
+      - SYS_TIME
+      - SYS_TTY_CONFIG
+      - WAKE_ALARM
+    entrypoint:
+      - /init
+    environment:
+      - PUID=99
+      - PGID=100
+      - TZ=America/Chicago
+      - PATH=/lsiopy/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - PS1=$(whoami)@$(hostname):$(pwd)\\$
+      - HOME=/root
+      - TERM=xterm
+      - S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0
+      - S6_VERBOSITY=1
+      - S6_STAGE2_HOOK=/docker-mods
+      - VIRTUAL_ENV=/lsiopy
+      - LSIO_FIRST_PARTY=true
+      - XDG_CONFIG_HOME=/config/xdg
+      - DOCKER_MODS=linuxserver/mods:lidarr-flac2mp3
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.lidarr.loadbalancer.server.port=8686
+      - traefik.http.routers.lidarr.rule=Host(`lidarr`)         
+    volumes:
+      - /<Local Config directory>/lidarr:/config
+      - /<local downloads directory>:/downloads
+    working_dir: / 
+    restart: unless-stopped
+    depends_on:
+      - vpn
+  
+  jackett:
+    image: lscr.io/linuxserver/jackett:latest
+    network_mode: container:vpn
+    cap_drop:
+      - AUDIT_CONTROL
+      - BLOCK_SUSPEND
+      - DAC_READ_SEARCH
+      - IPC_LOCK
+      - IPC_OWNER
+      - LEASE
+      - LINUX_IMMUTABLE
+      - MAC_ADMIN
+      - MAC_OVERRIDE
+      - NET_ADMIN
+      - NET_BROADCAST
+      - SYSLOG
+      - SYS_ADMIN
+      - SYS_BOOT
+      - SYS_MODULE
+      - SYS_NICE
+      - SYS_PACCT
+      - SYS_PTRACE
+      - SYS_RAWIO
+      - SYS_RESOURCE
+      - SYS_TIME
+      - SYS_TTY_CONFIG
+      - WAKE_ALARM
+    entrypoint:
+      - /init
+    environment:
+      - PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - PS1=$(whoami)@$(hostname):$(pwd)\\$
+      - HOME=/root
+      - TERM=xterm
+      - S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0
+      - S6_VERBOSITY=1
+      - S6_STAGE2_HOOK=/docker-mods
+      - VIRTUAL_ENV=/lsiopy
+      - XDG_DATA_HOME=/config
+      - XDG_CONFIG_HOME=/config
+      - LSIO_FIRST_PARTY=true
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.jackett.loadbalancer.server.port=9117
+      - traefik.http.routers.jackett.rule=Host(`jackett`)         
+    volumes:
+      - /<Local Config directory>/jackett:/config
+    working_dir: /opt
+    restart: unless-stopped
+    depends_on:
+      - vpn
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    network_mode: container:vpn
+    cap_drop:
+    - AUDIT_CONTROL
+    - BLOCK_SUSPEND
+    - DAC_READ_SEARCH
+    - IPC_LOCK
+    - IPC_OWNER
+    - LEASE
+    - LINUX_IMMUTABLE
+    - MAC_ADMIN
+    - MAC_OVERRIDE
+    - NET_ADMIN
+    - NET_BROADCAST
+    - SYSLOG
+    - SYS_ADMIN
+    - SYS_BOOT
+    - SYS_MODULE
+    - SYS_NICE
+    - SYS_PACCT
+    - SYS_PTRACE
+    - SYS_RAWIO
+    - SYS_RESOURCE
+    - SYS_TIME
+    - SYS_TTY_CONFIG
+    - WAKE_ALARM
+    entrypoint:
+      - /init
+    environment:
+      - PUID=99
+      - PGID=100
+      - TZ=America/Chicago
+      - PATH=/lsiopy/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - PS1=$(whoami)@$(hostname):$(pwd)\\$
+      - HOME=/root
+      - TERM=xterm
+      - S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0
+      - S6_VERBOSITY=1
+      - S6_STAGE2_HOOK=/docker-mods
+      - VIRTUAL_ENV=/lsiopy
+      - LSIO_FIRST_PARTY=true
+      - XDG_CONFIG_HOME=/config/xdg
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.radarr.loadbalancer.server.port=7878
+      - traefik.http.routers.radarr.rule=Host(`radarr`)      
+    volumes:
+      - /<Local Config directory>/radarr:/config
+      - /<local downloads directory>:/downloads
+    working_dir: / 
+    restart: unless-stopped
+    depends_on:
+      - vpn
+
+  readarr:
+    image: lscr.io/linuxserver/readarr:develop
+    network_mode: container:vpn
+    cap_drop:
+      - AUDIT_CONTROL
+      - BLOCK_SUSPEND
+      - DAC_READ_SEARCH
+      - IPC_LOCK
+      - IPC_OWNER
+      - LEASE
+      - LINUX_IMMUTABLE
+      - MAC_ADMIN
+      - MAC_OVERRIDE
+      - NET_ADMIN
+      - NET_BROADCAST
+      - SYSLOG
+      - SYS_ADMIN
+      - SYS_BOOT
+      - SYS_MODULE
+      - SYS_NICE
+      - SYS_PACCT
+      - SYS_PTRACE
+      - SYS_RAWIO
+      - SYS_RESOURCE
+      - SYS_TIME
+      - SYS_TTY_CONFIG
+      - WAKE_ALARM
+    entrypoint:
+      - /init
+    environment:
+      - PUID=99
+      - PGID=100
+      - TZ=America/Chicago
+      - PATH=/lsiopy/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - PS1=$(whoami)@$(hostname):$(pwd)\\$
+      - HOME=/root
+      - TERM=xterm
+      - S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0
+      - S6_VERBOSITY=1
+      - S6_STAGE2_HOOK=/docker-mods
+      - VIRTUAL_ENV=/lsiopy
+      - LSIO_FIRST_PARTY=true
+      - XDG_CONFIG_HOME=/config/xdg
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.readarr.loadbalancer.server.port=8787
+      - traefik.http.routers.readarr.rule=Host(`readarr`)
+    volumes:
+      - /<Local Config directory>/readarr:/config
+      - /<local downloads directory>:/downloads
+    working_dir: /    
+    restart: unless-stopped
+    depends_on:
+      - vpn
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    network_mode: container:vpn
+    cap_drop:
+      - AUDIT_CONTROL
+      - BLOCK_SUSPEND
+      - DAC_READ_SEARCH
+      - IPC_LOCK
+      - IPC_OWNER
+      - LEASE
+      - LINUX_IMMUTABLE
+      - MAC_ADMIN
+      - MAC_OVERRIDE
+      - NET_ADMIN
+      - NET_BROADCAST
+      - SYSLOG
+      - SYS_ADMIN
+      - SYS_BOOT
+      - SYS_MODULE
+      - SYS_NICE
+      - SYS_PACCT
+      - SYS_PTRACE
+      - SYS_RAWIO
+      - SYS_RESOURCE
+      - SYS_TIME
+      - SYS_TTY_CONFIG
+      - WAKE_ALARM
+    entrypoint:
+      - /init
+    environment:
+      - PUID=99
+      - PGID=100
+      - PATH=/lsiopy/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - HOME=/root
+      - LANGUAGE=en_US.UTF-8
+      - LANG=en_US.UTF-8
+      - TERM=xterm
+      - S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0
+      - S6_VERBOSITY=1
+      - S6_STAGE2_HOOK=/docker-mods
+      - VIRTUAL_ENV=/lsiopy
+      - LSIO_FIRST_PARTY=true
+      - XDG_CONFIG_HOME=/config/xdg
+      - SONARR_BRANCH=main
+      - TZ=America/Chicago
+      - PS1=$(whoami)@$(hostname):$(pwd)\\$
+      - SONARR_CHANNEL=v4-stable
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.sonarr.loadbalancer.server.port=8989
+      - traefik.http.routers.sonarr.rule=Host(`sonarr`)      
+    volumes:
+      - /<Local Config directory>/sonarr:/config
+      - /<local downloads directory>:/downloads
+    working_dir: /
+    restart: unless-stopped
+    depends_on:
+      - vpn
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    network_mode: container:vpn
+    cap_drop:
+      - AUDIT_CONTROL
+      - BLOCK_SUSPEND
+      - DAC_READ_SEARCH
+      - IPC_LOCK
+      - IPC_OWNER
+      - LEASE
+      - LINUX_IMMUTABLE
+      - MAC_ADMIN
+      - MAC_OVERRIDE
+      - NET_ADMIN
+      - NET_BROADCAST
+      - SYSLOG
+      - SYS_ADMIN
+      - SYS_BOOT
+      - SYS_MODULE
+      - SYS_NICE
+      - SYS_PACCT
+      - SYS_PTRACE
+      - SYS_RAWIO
+      - SYS_RESOURCE
+      - SYS_TIME
+      - SYS_TTY_CONFIG
+      - WAKE_ALARM
+    command:
+      - /usr/local/bin/python
+      - -u
+      - /app/flaresolverr.py
+    entrypoint:
+      - /usr/bin/dumb-init
+      - --
+    environment:
+      - LOG_LEVEL=info
+      - LOG_HTML=false
+      - CAPTCHA_SOLVER=none
+      - HEADLESS=true
+      - LANG=en_US
+      - PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - GPG_KEY=A035C8C19219BA821ECEA86B64E628F8D684696D
+      - PYTHON_VERSION=3.11.6
+      - PYTHON_PIP_VERSION=23.2.1
+      - PYTHON_SETUPTOOLS_VERSION=65.5.1
+      - PYTHON_GET_PIP_URL=https://github.com/pypa/get-pip/raw/c6add47b0abf67511cdfb4734771cbab403af062/public/get-pip.py
+      - PYTHON_GET_PIP_SHA256=22b849a10f86f5ddf7ce148ca2a31214504ee6c83ef626840fde6e5dcd809d11
+      - TZ=America/Chicago
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.flaresolverr.loadbalancer.server.port=8191
+      - traefik.http.routers.flaresolverr.rule=Host(`flaresolverr`)         
+    user: flaresolverr
+    working_dir: /app
+    restart: unless-stopped
+    depends_on:
+      - vpn    
+
+networks:
+  vpn:
+    name: vpn
+    external: true
+  
